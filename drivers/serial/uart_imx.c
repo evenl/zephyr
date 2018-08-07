@@ -36,7 +36,8 @@ struct imx_uart_config {
 
 struct imx_uart_data {
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
-	uart_irq_callback_t callback;
+	uart_irq_callback_user_data_t callback;
+	void *cb_data;
 #endif
 };
 
@@ -74,7 +75,7 @@ static int uart_imx_init(struct device *dev)
 	UART_Init(uart, &initConfig);
 
 	/* Set UART build-in hardware FIFO Watermark. */
-	UART_SetTxFifoWatermark(uart, 1);
+	UART_SetTxFifoWatermark(uart, 2);
 	UART_SetRxFifoWatermark(uart, 1);
 
 	/* restore interrupt state */
@@ -228,11 +229,13 @@ static int uart_imx_irq_update(struct device *dev)
 }
 
 static void uart_imx_irq_callback_set(struct device *dev,
-		uart_irq_callback_t cb)
+		uart_irq_callback_user_data_t cb,
+		void *cb_data)
 {
 	struct imx_uart_data *data = dev->driver_data;
 
 	data->callback = cb;
+	data->cb_data = cb_data;
 }
 
 /**

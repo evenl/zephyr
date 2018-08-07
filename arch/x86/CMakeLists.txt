@@ -7,11 +7,22 @@ else()
   zephyr_compile_definitions(PERF_OPT)
 endif()
 
+if(CONFIG_X86_IAMCU)
+  set_property(GLOBAL APPEND PROPERTY PROPERTY_LINKER_SCRIPT_DEFINES -D__IAMCU)
+  set_property(GLOBAL        PROPERTY PROPERTY_OUTPUT_FORMAT         "elf32-iamcu")
+  set_property(GLOBAL        PROPERTY PROPERTY_OUTPUT_ARCH           "iamcu:intel")
+else()
+  set_property(GLOBAL PROPERTY PROPERTY_OUTPUT_ARCH "i386")
+  set_property(GLOBAL PROPERTY PROPERTY_OUTPUT_FORMAT "elf32-i386")
+endif()
+
+
+
 if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
   if(CONFIG_X86_IAMCU)
-    zephyr_cc_option(-Qunused-arguments)
+    zephyr_compile_options(-miamcu)
   else()
-    zephyr_cc_option(-mmcu)
+    zephyr_compile_options(-Qunused-arguments)
   endif()
 
   zephyr_cc_option(
@@ -23,8 +34,6 @@ endif()
 zephyr_cc_option_ifdef (CONFIG_LTO         -flto)
 zephyr_cc_option_ifndef(CONFIG_SSE_FP_MATH -mno-sse)
 
-set_property(GLOBAL PROPERTY E_KERNEL_ENTRY  -e${CONFIG_KERNEL_ENTRY})
-
 if(CMAKE_VERBOSE_MAKEFILE)
   set(GENIDT_EXTRA_ARGS --verbose)
 else()
@@ -34,9 +43,6 @@ endif()
 set(GENIDT ${ZEPHYR_BASE}/scripts/gen_idt.py)
 
 define_property(GLOBAL PROPERTY PROPERTY_OUTPUT_ARCH BRIEF_DOCS " " FULL_DOCS " ")
-set_property(GLOBAL PROPERTY PROPERTY_OUTPUT_ARCH "i386")
-
-set_property(GLOBAL PROPERTY PROPERTY_OUTPUT_FORMAT "elf32-i386")
 
 # Use gen_idt.py and objcopy to generate irq_int_vector_map.o and
 # staticIdt.o from the elf file zephyr_prebuilt

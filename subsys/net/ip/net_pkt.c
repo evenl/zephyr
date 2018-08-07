@@ -1079,43 +1079,7 @@ int net_frag_linear_copy(struct net_buf *dst, struct net_buf *src,
 int net_frag_linearize(u8_t *dst, size_t dst_len, struct net_pkt *src,
 			 u16_t offset, u16_t len)
 {
-	struct net_buf *frag;
-	u16_t to_copy;
-	u16_t copied;
-
-	if (dst_len < (size_t)len) {
-		return -ENOMEM;
-	}
-
-	frag = src->frags;
-
-	/* find the right fragment to start copying from */
-	while (frag && offset >= frag->len) {
-		offset -= frag->len;
-		frag = frag->frags;
-	}
-
-	/* traverse the fragment chain until len bytes are copied */
-	copied = 0;
-	while (frag && len > 0) {
-		to_copy = min(len, frag->len - offset);
-		memcpy(dst + copied, frag->data + offset, to_copy);
-
-		copied += to_copy;
-
-		/* to_copy is always <= len */
-		len -= to_copy;
-		frag = frag->frags;
-
-		/* after the first iteration, this value will be 0 */
-		offset = 0;
-	}
-
-	if (len > 0) {
-		return -ENOMEM;
-	}
-
-	return copied;
+	return net_buf_linearize(dst, dst_len, src->frags, offset, len);
 }
 
 bool net_pkt_compact(struct net_pkt *pkt)
@@ -1178,40 +1142,10 @@ bool net_pkt_compact(struct net_pkt *pkt)
 	return true;
 }
 
-/* This helper routine will append multiple bytes, if there is no place for
- * the data in current fragment then create new fragment and add it to
- * the buffer. It assumes that the buffer has at least one fragment.
- */
-static inline u16_t net_pkt_append_bytes(struct net_pkt *pkt,
-					 const u8_t *value,
-					 u16_t len, s32_t timeout)
+static inline struct net_buf *net_pkt_append_allocator(s32_t timeout,
+						       void *user_data)
 {
-	struct net_buf *frag = net_buf_frag_last(pkt->frags);
-	u16_t added_len = 0;
-
-	do {
-		u16_t count = min(len, net_buf_tailroom(frag));
-		void *data = net_buf_add(frag, count);
-
-		memcpy(data, value, count);
-		len -= count;
-		added_len += count;
-		value += count;
-
-		if (len == 0) {
-			return added_len;
-		}
-
-		frag = net_pkt_get_frag(pkt, timeout);
-		if (!frag) {
-			return added_len;
-		}
-
-		net_pkt_frag_add(pkt, frag);
-	} while (1);
-
-	/* Unreachable */
-	return 0;
+	return net_pkt_get_frag((struct net_pkt *)user_data, timeout);
 }
 
 u16_t net_pkt_append(struct net_pkt *pkt, u16_t len, const u8_t *data,
@@ -1256,7 +1190,9 @@ u16_t net_pkt_append(struct net_pkt *pkt, u16_t len, const u8_t *data,
 		}
 	}
 
-	appended = net_pkt_append_bytes(pkt, data, len, timeout);
+	appended = net_buf_append_bytes(net_buf_frag_last(pkt->frags),
+					len, data, timeout,
+					net_pkt_append_allocator, pkt);
 
 	if (ctx) {
 		pkt->data_len -= appended;
@@ -1665,50 +1601,50 @@ bool net_pkt_insert(struct net_pkt *pkt, struct net_buf *frag,
 	return insert_data(pkt, frag, temp, offset, len, data, timeout);
 }
 
-int net_pkt_split(struct net_pkt *pkt, struct net_buf *orig_frag,
-		  u16_t len, struct net_buf **fragA,
-		  struct net_buf **fragB, s32_t timeout)
+int net_pkt_split(struct net_pkt *pkt, struct net_buf *frag, u16_t offset,
+		  struct net_buf **rest, s32_t timeout)
 {
-	if (!pkt || !orig_frag) {
+	struct net_buf *prev;
+
+	if (!pkt || !frag || !offset || !rest) {
 		return -EINVAL;
 	}
 
-	NET_ASSERT(fragA && fragB);
+	prev = frag;
+	*rest = NULL;
 
-	if (len == 0) {
-		*fragA = NULL;
-		*fragB = NULL;
-		return 0;
-	}
-
-	if (len > orig_frag->len) {
-		*fragA = net_pkt_get_frag(pkt, timeout);
-		if (!*fragA) {
-			return -ENOMEM;
+	while (frag) {
+		if (offset < frag->len) {
+			break;
 		}
 
-		memcpy(net_buf_add(*fragA, orig_frag->len), orig_frag->data,
-		       orig_frag->len);
+		offset -= frag->len;
+		prev = frag;
+		frag = frag->frags;
+	}
 
-		*fragB = NULL;
+	if (!frag && offset) {
+		return -EINVAL;
+	}
+
+	if (!frag && !offset) {
+		*rest = frag;
+		prev->frags = NULL;
+
 		return 0;
 	}
 
-	*fragA = net_pkt_get_frag(pkt, timeout);
-	if (!*fragA) {
+	*rest = net_pkt_get_frag(pkt, timeout);
+	if (!*rest) {
 		return -ENOMEM;
 	}
 
-	*fragB = net_pkt_get_frag(pkt, timeout);
-	if (!*fragB) {
-		net_pkt_frag_unref(*fragA);
-		*fragA = NULL;
-		return -ENOMEM;
-	}
+	memcpy(net_buf_add(*rest, frag->len - offset),
+	       frag->data + offset, frag->len - offset);
+	frag->len = offset;
 
-	memcpy(net_buf_add(*fragA, len), orig_frag->data, len);
-	memcpy(net_buf_add(*fragB, orig_frag->len - len),
-	       orig_frag->data + len, orig_frag->len - len);
+	(*rest)->frags = frag->frags;
+	frag->frags = NULL;
 
 	return 0;
 }
@@ -1827,6 +1763,100 @@ static int net_pkt_get_addr(struct net_pkt *pkt, bool is_src,
 		addr4->sin_port = port;
 	} else {
 		return -ENOTSUP;
+	}
+
+	return 0;
+}
+
+int net_pkt_pull(struct net_pkt *pkt, u16_t offset, u16_t len)
+{
+	struct net_buf *frag;
+	struct net_buf *temp;
+	struct net_buf *prev;
+	u8_t avail;
+
+	if (!pkt || !len) {
+		return -EINVAL;
+	}
+
+	prev = NULL;
+	frag = pkt->frags;
+
+	while (1) {
+		if (!frag) {
+			return -EINVAL;
+		}
+
+		if (offset < frag->len) {
+			break;
+		}
+
+		offset -= frag->len;
+		prev = frag;
+		frag = frag->frags;
+	}
+
+	/* Pull the data */
+	while (frag && len) {
+		if (!offset) {
+			if (len > frag->len) {
+				len -= frag->len;
+
+				temp = frag;
+				frag = frag->frags;
+				temp->frags = NULL;
+				offset = 0;
+
+				net_buf_unref(temp);
+
+				if (prev) {
+					prev->frags = frag;
+				} else {
+					pkt->frags = frag;
+				}
+			} else {
+				memmove(frag->data, frag->data + len,
+					frag->len - len);
+				frag->len -= len;
+				len = 0;
+
+				if (!frag->len) {
+					temp = frag;
+					frag = frag->frags;
+					temp->frags = NULL;
+
+					net_buf_unref(temp);
+
+					if (prev) {
+						prev->frags = frag;
+					} else {
+						pkt->frags = frag;
+					}
+				}
+			}
+		} else {
+			avail = frag->len - offset;
+
+			if (len > avail) {
+				frag->len = offset;
+
+				len -= avail;
+				prev = frag;
+				frag = frag->frags;
+				offset = 0;
+			} else {
+				memmove(frag->data + offset,
+					frag->data + offset + len,
+					avail - len);
+				frag->len -= len;
+				len = 0;
+			}
+		}
+	}
+
+	if (len) {
+		NET_ERR("Could not pull given length out of net packet");
+		return -EINVAL;
 	}
 
 	return 0;

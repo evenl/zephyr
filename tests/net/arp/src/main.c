@@ -20,8 +20,9 @@
 #include <net/net_core.h>
 #include <net/net_pkt.h>
 #include <net/net_ip.h>
-#include <net/arp.h>
 #include <ztest.h>
+
+#include "arp.h"
 
 #define NET_LOG_ENABLED 1
 #include "net_private.h"
@@ -376,7 +377,7 @@ void test_arp(void)
 
 	memcpy(net_buf_add(frag, len), app_data, len);
 
-	pkt2 = net_arp_prepare(pkt);
+	pkt2 = net_arp_prepare(pkt, &NET_IPV4_HDR(pkt)->dst, NULL);
 
 	/* pkt2 is the ARP packet and pkt is the IPv4 packet and it was
 	 * stored in ARP table.
@@ -496,7 +497,7 @@ void test_arp(void)
 	/* Then a case where target is not in the same subnet */
 	net_ipaddr_copy(&ipv4->dst, &dst_far);
 
-	pkt2 = net_arp_prepare(pkt);
+	pkt2 = net_arp_prepare(pkt, &NET_IPV4_HDR(pkt)->dst, NULL);
 
 	zassert_not_equal((void *)(pkt2), (void *)(pkt),
 		"ARP cache should not find anything");
@@ -530,7 +531,7 @@ void test_arp(void)
 	 */
 	net_pkt_ref(pkt);
 
-	pkt2 = net_arp_prepare(pkt);
+	pkt2 = net_arp_prepare(pkt, &NET_IPV4_HDR(pkt)->dst, NULL);
 
 	zassert_not_null(pkt2,
 		"ARP cache is not sending the request again");
@@ -547,7 +548,7 @@ void test_arp(void)
 	 */
 	net_pkt_ref(pkt);
 
-	pkt2 = net_arp_prepare(pkt);
+	pkt2 = net_arp_prepare(pkt, &NET_IPV4_HDR(pkt)->dst, NULL);
 
 	zassert_not_null(pkt2,
 		"ARP cache did not send a req");
@@ -560,19 +561,13 @@ void test_arp(void)
 	/* The arp request packet is now verified, create an arp reply.
 	 * The previous value of pkt is stored in arp table and is not lost.
 	 */
-	pkt = net_pkt_get_reserve_rx(sizeof(struct net_eth_hdr), K_FOREVER);
+	pkt = net_pkt_get_reserve_rx(sizeof(struct net_eth_hdr), K_SECONDS(1));
 
-	zassert_not_null(pkt,
-		"Out of mem RX reply");
+	zassert_not_null(pkt, "Out of mem RX reply");
 
-	printk("%d pkt %p\n", __LINE__, pkt);
+	frag = net_pkt_get_frag(pkt, K_SECONDS(1));
 
-	frag = net_pkt_get_frag(pkt, K_FOREVER);
-
-	zassert_not_null(frag,
-		"Out of mem DATA reply");
-
-	printk("%d frag %p\n", __LINE__, frag);
+	zassert_not_null(frag, "Out of mem DATA reply");
 
 	net_pkt_frag_add(pkt, frag);
 

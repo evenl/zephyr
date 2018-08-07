@@ -32,6 +32,9 @@
 #if defined(CONFIG_NET_DHCPV4)
 #include <net/dhcpv4.h>
 #endif
+#if defined(CONFIG_NET_IPV4_AUTO)
+#include <net/ipv4_autoconf.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,6 +80,9 @@ struct net_if_addr {
  * Stores the multicast IP addresses assigned to this network interface.
  */
 struct net_if_mcast_addr {
+	/** IP address */
+	struct net_addr address;
+
 	/** Is this multicast IP address used or not */
 	u8_t is_used : 1;
 
@@ -84,9 +90,6 @@ struct net_if_mcast_addr {
 	u8_t is_joined : 1;
 
 	u8_t _unused : 6;
-
-	/** IP address */
-	struct net_addr address;
 };
 
 #if defined(CONFIG_NET_IPV6)
@@ -161,6 +164,9 @@ enum {
 	/* interface is pointopoint */
 	NET_IF_POINTOPOINT,
 
+	/* interface is in promiscuous mode */
+	NET_IF_PROMISC,
+
 	/* Total number of flags - must be at the end of the enum */
 	NET_IF_NUM_FLAGS
 };
@@ -233,6 +239,15 @@ struct net_if_ipv4 {
 
 #if defined(CONFIG_NET_DHCPV4)
 struct net_if_dhcpv4 {
+	/** Used for timer lists */
+	sys_snode_t node;
+
+	/** Timer start */
+	s64_t timer_start;
+
+	/** Time for INIT, DISCOVER, REQUESTING, RENEWAL */
+	u32_t request_time;
+
 	u32_t xid;
 
 	/** IP address Lease time */
@@ -250,16 +265,6 @@ struct net_if_dhcpv4 {
 	/** Requested IP addr */
 	struct in_addr requested_ip;
 
-	/** Timer for DHCPv4 Client requests (DISCOVER, REQUEST or RENEWAL)
-	 */
-	struct k_delayed_work timer;
-
-	/** T1 (Renewal) timer */
-	struct k_delayed_work t1_timer;
-
-	/** T2 (Rebinding) timer */
-	struct k_delayed_work t2_timer;
-
 	/**
 	 *  DHCPv4 client state in the process of network
 	 *  address allocation.
@@ -270,6 +275,41 @@ struct net_if_dhcpv4 {
 	u8_t attempts;
 };
 #endif /* CONFIG_NET_DHCPV4 */
+
+#if defined(CONFIG_NET_IPV4_AUTO)
+struct net_if_ipv4_autoconf {
+	/** Used for timer lists */
+	sys_snode_t node;
+
+	/** Backpointer to correct network interface */
+	struct net_if *iface;
+
+	/** Timer start */
+	s64_t timer_start;
+
+	/** Time for INIT, DISCOVER, REQUESTING, RENEWAL */
+	u32_t timer_timeout;
+
+	/** Current IP addr */
+	struct in_addr current_ip;
+
+	/** Requested IP addr */
+	struct in_addr requested_ip;
+
+	/** IPV4 Autoconf state in the process of network address allocation.
+	 */
+	enum net_ipv4_autoconf_state state;
+
+	/** Number of sent probe requests */
+	u8_t probe_cnt;
+
+	/** Number of sent announcements */
+	u8_t announce_cnt;
+
+	/** Incoming conflict count */
+	u8_t conflict_cnt;
+};
+#endif /* CONFIG_NET_IPV4_AUTO */
 
 /* We always need to have at least one IP config */
 #define NET_IF_MAX_CONFIGS 1
@@ -297,6 +337,10 @@ struct net_if_config {
 #if defined(CONFIG_NET_DHCPV4)
 	struct net_if_dhcpv4 dhcpv4;
 #endif /* CONFIG_NET_DHCPV4 */
+
+#if defined(CONFIG_NET_IPV4_AUTO)
+	struct net_if_ipv4_autoconf ipv4auto;
+#endif /* CONFIG_NET_IPV4_AUTO */
 };
 
 /**
@@ -348,9 +392,6 @@ struct net_if_dev {
 	/** The hardware link address */
 	struct net_linkaddr link_addr;
 
-	/** The hardware MTU */
-	u16_t mtu;
-
 #if defined(CONFIG_NET_OFFLOAD)
 	/** TCP/IP Offload functions.
 	 * If non-NULL, then the TCP/IP stack is located
@@ -359,6 +400,9 @@ struct net_if_dev {
 	 */
 	struct net_offload *offload;
 #endif /* CONFIG_NET_OFFLOAD */
+
+	/** The hardware MTU */
+	u16_t mtu;
 };
 
 /**
@@ -411,11 +455,7 @@ static inline const struct net_l2 * const net_if_l2(struct net_if *iface)
  *
  * @return verdict about the packet
  */
-static inline enum net_verdict net_if_recv_data(struct net_if *iface,
-						struct net_pkt *pkt)
-{
-	return net_if_l2(iface)->recv(iface, pkt);
-}
+enum net_verdict net_if_recv_data(struct net_if *iface, struct net_pkt *pkt);
 
 /**
  * @brief Get link layer header size for this network interface
@@ -1622,6 +1662,11 @@ struct net_if_timestamp_cb {
 	/** Node information for the slist. */
 	sys_snode_t node;
 
+	/** Packet for which the callback is needed.
+	 *  A NULL value means all packets.
+	 */
+	struct net_pkt *pkt;
+
 	/** Net interface for which the callback is needed.
 	 *  A NULL value means all interfaces.
 	 */
@@ -1635,11 +1680,14 @@ struct net_if_timestamp_cb {
  * @brief Register a timestamp callback.
  *
  * @param handle Caller specified handler for the callback.
+ * @param pkt Net packet for which the callback is registered. NULL for all
+ * 	      packets.
  * @param iface Net interface for which the callback is. NULL for all
  *		interfaces.
  * @param cb Callback to register.
  */
 void net_if_register_timestamp_cb(struct net_if_timestamp_cb *handle,
+				  struct net_pkt *pkt,
 				  struct net_if *iface,
 				  net_if_timestamp_callback_t cb);
 
@@ -1664,6 +1712,34 @@ void net_if_call_timestamp_cb(struct net_pkt *pkt);
  */
 void net_if_add_tx_timestamp(struct net_pkt *pkt);
 #endif /* CONFIG_NET_PKT_TIMESTAMP */
+
+/**
+ * @brief Set network interface into promiscuous mode
+ *
+ * @details Note that not all network technologies will support this.
+ *
+ * @param iface Pointer to network interface
+ *
+ * @return 0 on success, <0 if error
+ */
+int net_if_set_promisc(struct net_if *iface);
+
+/**
+ * @brief Set network interface into normal mode
+ *
+ * @param iface Pointer to network interface
+ */
+void net_if_unset_promisc(struct net_if *iface);
+
+/**
+ * @brief Check if promiscuous mode is set or not.
+ *
+ * @param iface Pointer to network interface
+ *
+ * @return True if interface is in promisc mode,
+ *         False if interface is not in in promiscuous mode.
+ */
+bool net_if_is_promisc(struct net_if *iface);
 
 struct net_if_api {
 	void (*init)(struct net_if *iface);

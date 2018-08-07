@@ -16,13 +16,13 @@
 #include <net/net_core.h>
 #include <net/net_pkt.h>
 #include <net/net_if.h>
-#include <net/arp.h>
 #include <net/net_mgmt.h>
 #include <net/ethernet.h>
 
 #include "net_private.h"
 #include "ipv6.h"
 #include "rpl.h"
+#include "ipv4_autoconf_internal.h"
 
 #include "net_stats.h"
 
@@ -2152,6 +2152,47 @@ struct net_if_mcast_addr *net_if_ipv4_maddr_lookup(const struct in_addr *maddr,
 }
 #endif /* CONFIG_NET_IPV4 */
 
+enum net_verdict net_if_recv_data(struct net_if *iface, struct net_pkt *pkt)
+{
+	if (IS_ENABLED(CONFIG_NET_PROMISCUOUS_MODE) &&
+	    net_if_is_promisc(iface)) {
+		/* If the packet is not for us and the promiscuous
+		 * mode is enabled, then increase the ref count so
+		 * that net_core.c:processing_data() will not free it.
+		 * The promiscuous mode handler must free the packet
+		 * after it has finished working with it.
+		 *
+		 * If packet is for us, then NET_CONTINUE is returned.
+		 * In this case we must clone the packet, as the packet
+		 * could be manipulated by other part of the stack.
+		 */
+		enum net_verdict verdict;
+		struct net_pkt *new_pkt;
+
+		/* This protects pkt so that it will not be freed by L2 recv()
+		 */
+		net_pkt_ref(pkt);
+
+		verdict = net_if_l2(iface)->recv(iface, pkt);
+
+		if (verdict == NET_CONTINUE) {
+			new_pkt = net_pkt_clone(pkt, K_NO_WAIT);
+		} else {
+			new_pkt = net_pkt_ref(pkt);
+		}
+
+		if (net_promisc_mode_input(new_pkt) == NET_DROP) {
+			net_pkt_unref(new_pkt);
+		}
+
+		net_pkt_unref(pkt);
+
+		return verdict;
+	}
+
+	return net_if_l2(iface)->recv(iface, pkt);
+}
+
 void net_if_register_link_cb(struct net_if_link_cb *link,
 			     net_if_link_callback_t cb)
 {
@@ -2269,6 +2310,10 @@ done:
 	net_if_start_rs(iface);
 #endif
 
+#if defined(CONFIG_NET_IPV4_AUTO)
+	net_ipv4_autoconf_start(iface);
+#endif
+
 	net_mgmt_event_notify(NET_EVENT_IF_UP, iface);
 
 	return 0;
@@ -2279,6 +2324,10 @@ void net_if_carrier_down(struct net_if *iface)
 	NET_DBG("iface %p", iface);
 
 	atomic_clear_bit(iface->if_dev->flags, NET_IF_UP);
+
+#if defined(CONFIG_NET_IPV4_AUTO)
+	net_ipv4_autoconf_reset(iface);
+#endif
 
 	net_mgmt_event_notify(NET_EVENT_IF_DOWN, iface);
 }
@@ -2316,6 +2365,50 @@ done:
 	return 0;
 }
 
+int net_if_set_promisc(struct net_if *iface)
+{
+	int ret;
+
+	NET_ASSERT(iface);
+
+	/* This is currently only support for ethernet.
+	 * TODO: support also other L2 technologies.
+	 */
+#if defined(CONFIG_NET_L2_ETHERNET)
+	if (net_if_l2(iface) != &NET_L2_GET_NAME(ETHERNET)) {
+		return -ENOTSUP;
+	}
+
+	ret = net_eth_promisc_mode(iface, true);
+	if (ret < 0) {
+		return ret;
+	}
+#else
+	return -ENOTSUP;
+#endif
+
+	ret = atomic_test_and_set_bit(iface->if_dev->flags, NET_IF_PROMISC);
+	if (ret) {
+		return -EALREADY;
+	}
+
+	return 0;
+}
+
+void net_if_unset_promisc(struct net_if *iface)
+{
+	NET_ASSERT(iface);
+
+	atomic_clear_bit(iface->if_dev->flags, NET_IF_PROMISC);
+}
+
+bool net_if_is_promisc(struct net_if *iface)
+{
+	NET_ASSERT(iface);
+
+	return atomic_test_bit(iface->if_dev->flags, NET_IF_PROMISC);
+}
+
 #if defined(CONFIG_NET_PKT_TIMESTAMP)
 static void net_tx_ts_thread(void)
 {
@@ -2332,6 +2425,7 @@ static void net_tx_ts_thread(void)
 }
 
 void net_if_register_timestamp_cb(struct net_if_timestamp_cb *handle,
+				  struct net_pkt *pkt,
 				  struct net_if *iface,
 				  net_if_timestamp_callback_t cb)
 {
@@ -2340,6 +2434,7 @@ void net_if_register_timestamp_cb(struct net_if_timestamp_cb *handle,
 
 	handle->iface = iface;
 	handle->cb = cb;
+	handle->pkt = pkt;
 }
 
 void net_if_unregister_timestamp_cb(struct net_if_timestamp_cb *handle)
@@ -2355,8 +2450,9 @@ void net_if_call_timestamp_cb(struct net_pkt *pkt)
 		struct net_if_timestamp_cb *handle =
 			CONTAINER_OF(sn, struct net_if_timestamp_cb, node);
 
-		if ((handle->iface == NULL) ||
-		    (handle->iface == net_pkt_iface(pkt))) {
+		if (((handle->iface == NULL) ||
+		     (handle->iface == net_pkt_iface(pkt))) &&
+		    (handle->pkt == NULL || handle->pkt == pkt)) {
 			handle->cb(pkt);
 		}
 	}

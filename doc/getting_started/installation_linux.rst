@@ -10,8 +10,11 @@ applications on the following Linux distributions:
 
 * Ubuntu 16.04 LTS 64-bit
 * Fedora 25 64-bit
+* Clear Linux
+* Arch Linux (install `zephyr-sdk <https://aur.archlinux.org/packages/zephyr-sdk>`_ package from AUR)
 
-Where needed, alternative instructions are listed for Ubuntu and Fedora.
+Where needed, alternative instructions are listed for specific Linux
+distributions.
 
 Installing the Host's Operating System
 **************************************
@@ -43,12 +46,18 @@ Note that having a newer version available for an installed package
 ``dnf upgrade`` will install it, because it must also ensure dependencies
 and other restrictions are satisfied.
 
+On Clear Linux:
+
+.. code-block:: console
+
+   sudo swupd update
+
 Installing Requirements and Dependencies
 ****************************************
 
-Install the following with either apt-get or dnf.
+Install the following required packages using either apt-get or dnf.
 
-Install the required packages in a Ubuntu host system with:
+On Ubuntu host system:
 
 .. code-block:: console
 
@@ -57,25 +66,27 @@ Install the required packages in a Ubuntu host system with:
      python3-ply python3-pip python3-setuptools python3-wheel xz-utils file \
      make gcc-multilib autoconf automake libtool
 
-Install the required packages in a Fedora host system with:
+On Fedora host system:
 
 .. code-block:: console
 
    sudo dnf group install "Development Tools" "C Development Tools and Libraries"
    sudo dnf install git cmake ninja-build gperf ccache\
-	 doxygen dfu-util dtc python3-pip \
-	 python3-ply python3-yaml dfu-util dtc python3-pykwalify \
-         glibc-devel.i686 libstdc++-devel.i686 autoconf automake libtool
+     doxygen dfu-util dtc python3-pip \
+     python3-ply python3-yaml dfu-util dtc python3-pykwalify \
+     glibc-devel.i686 libstdc++-devel.i686 autoconf automake libtool
+
+On Clear Linux host system:
+
+.. code-block:: console
+
+   sudo swupd bundle-add c-basic dev-utils dfu-util dtc \
+     os-core-dev python-basic python3-basic
 
 Install additional packages required for development with Zephyr::
 
    cd ~/zephyr  # or to your directory where zephyr is cloned
    pip3 install --user -r scripts/requirements.txt
-
-If you require pyocd, an open source python2 library for programming and
-debugging ARM Cortex-M microcontrollers, use this command::
-
-   pip2 install --user -r scripts/py2-requirements.txt
 
 CMake version 3.8.2 or higher is required. Check what version you have using
 ``cmake --version``; if you have an older version, check the backports or
@@ -129,6 +140,7 @@ Follow these steps to install the SDK on your Linux host system.
 
    .. code-block:: console
 
+      cd <sdk download directory>
       sh zephyr-sdk-0.9.3-setup.run
 
    .. important::
@@ -150,6 +162,15 @@ Follow these steps to install the SDK on your Linux host system.
       export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
       export ZEPHYR_SDK_INSTALL_DIR=<sdk installation directory>
 
+   .. note::
+      Some Linux distributions have default CFLAGS and CXXFLAGS
+      environment variables already set. For all distros, they need to be
+      unset to prevent these settings from interfering with cmake:
+
+      .. code-block:: console
+
+         unset CFLAGS CXXFLAGS
+
   To use the same toolchain in new sessions in the future, you can set the
   variables in the file :file:`${HOME}/.zephyrrc`, for example:
 
@@ -159,6 +180,22 @@ Follow these steps to install the SDK on your Linux host system.
      export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
      export ZEPHYR_SDK_INSTALL_DIR=/opt/zephyr-sdk
      EOF
+
+  .. note::
+     Use ``<sdk installation directory>`` in place of ``/opt/zephyr-sdk/`` in the
+     above shown example if the SDK installation location is not default.
+
+
+  .. note::
+     Some Linux distributions have default CFLAGS and CXXFLAGS
+     environment variables already set. For all distros, they need to be
+     unset to prevent these settings from interfering with cmake:
+
+     .. code-block:: console
+
+        cat <<EOF >> ~/.zephyrrc
+        unset CFLAGS CXXFLAGS
+        EOF
 
 .. note:: In previous releases of Zephyr, the ``ZEPHYR_TOOLCHAIN_VARIANT``
           variable was called ``ZEPHYR_GCC_VARIANT``.

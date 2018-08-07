@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Modified from: https://github.com/ulfalizer/Kconfiglib/blob/master/examples/merge_config.py
 import argparse
+import os
 import sys
 import textwrap
 
@@ -12,11 +13,8 @@ from kconfiglib import Kconfig, Symbol, BOOL, STRING, TRISTATE, TRI_TO_STR
 WARNING_WHITELIST = (
     # Warning generated when a symbol with unsatisfied dependencies is being
     # selected. These should be investigated, but whitelist them for now.
-    "unsatisfied direct dependencies",
+    "y-selected",
 
-    # This symbol is only defined for ARC, but is set in some "shared" .conf
-    # files
-    "undefined symbol ARC_INIT",  # Issue #7977
 )
 
 def fatal(warning):
@@ -64,9 +62,23 @@ def main():
     # Print warnings for symbols whose actual value doesn't match the assigned
     # value
     for sym in kconf.defined_syms:
-        # Was the symbol assigned to?
-        if sym.user_value is not None:
-            verify_assigned_value(sym)
+        # Was the symbol assigned to? Choice symbols are checked separately.
+        if sym.user_value is not None and not sym.choice:
+            verify_assigned_sym_value(sym)
+
+    # Print warnings for choices whose actual selection doesn't match the user
+    # selection
+    for choice in kconf.choices:
+        if choice.user_selection:
+            verify_assigned_choice_value(choice)
+
+    # Hack: Force all symbols to be evaluated, to catch warnings generated
+    # during evaluation. Wait till the end to write the actual output files, so
+    # that we don't generate any output if there are warnings-turned-errors.
+    #
+    # Kconfiglib caches calculated symbol values internally, so this is still
+    # fast.
+    kconf.write_config(os.devnull)
 
     # We could roll this into the loop below, but it's nice to always print all
     # warnings, even if one of them turns out to be fatal
@@ -90,10 +102,8 @@ def main():
                      .format(warning, sys.argv[0]))
 
 
-    # Write the merged configuration
+    # Write the merged configuration and the C header
     kconf.write_config(args.dotconfig)
-
-    # Write the C header
     kconf.write_autoconf(args.autoconf)
 
 
@@ -119,7 +129,7 @@ values' section of the Board Porting Guide as well.
 
 PROMPTLESS_HINT_EXTRA = "It covers Kconfig.defconfig files."
 
-def verify_assigned_value(sym):
+def verify_assigned_sym_value(sym):
     # Verifies that the value assigned to 'sym' "took" (matches the value the
     # symbol actually got), printing a warning otherwise
 
@@ -145,6 +155,31 @@ def verify_assigned_value(sym):
 
         # Use a large fill() width to try to avoid linebreaks in the symbol
         # reference link
+        print(textwrap.fill(msg, 100), file=sys.stderr)
+
+
+def verify_assigned_choice_value(choice):
+    # Verifies that the choice symbol that was selected (by setting it to y)
+    # ended up as the selection, printing a warning otherwise.
+    #
+    # We check choice symbols separately to avoid warnings when two different
+    # choice symbols within the same choice are set to y. This might happen if
+    # a choice selection from a board defconfig is overriden in a prj.conf, for
+    # example. The last choice symbol set to y becomes the selection (and all
+    # other choice symbols get the value n).
+    #
+    # Without special-casing choices, we'd detect that the first symbol set to
+    # y ended up as n, and print a spurious warning.
+
+    if choice.user_selection is not choice.selection:
+        msg = "warning: the choice symbol {} was selected (set =y), but {} " \
+              "ended up as the choice selection. " \
+              .format(name_and_loc(choice.user_selection),
+                      name_and_loc(choice.selection) if choice.selection
+                          else "no symbol")
+
+        msg += SYM_INFO_HINT.format(choice.user_selection.name)
+
         print(textwrap.fill(msg, 100), file=sys.stderr)
 
 

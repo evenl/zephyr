@@ -99,7 +99,8 @@ static int uart_stm32_fifo_read(struct device *dev, u8_t *rx_data,
 
 	while ((size - num_rx > 0) &&
 	       LL_USART_IsActiveFlag_RXNE(UartInstance)) {
-#if defined(CONFIG_SOC_SERIES_STM32F1X) || defined(CONFIG_SOC_SERIES_STM32F4X)
+#if defined(CONFIG_SOC_SERIES_STM32F1X) || defined(CONFIG_SOC_SERIES_STM32F4X) \
+	|| defined(CONFIG_SOC_SERIES_STM32F2X)
 		/* Clear the interrupt */
 		LL_USART_ClearFlag_RXNE(UartInstance);
 #endif
@@ -207,11 +208,13 @@ static int uart_stm32_irq_update(struct device *dev)
 }
 
 static void uart_stm32_irq_callback_set(struct device *dev,
-					uart_irq_callback_t cb)
+					uart_irq_callback_user_data_t cb,
+					void *cb_data)
 {
 	struct uart_stm32_data *data = DEV_DATA(dev);
 
 	data->user_cb = cb;
+	data->user_data = cb_data;
 }
 
 static void uart_stm32_isr(void *arg)
@@ -220,7 +223,7 @@ static void uart_stm32_isr(void *arg)
 	struct uart_stm32_data *data = DEV_DATA(dev);
 
 	if (data->user_cb) {
-		data->user_cb(dev);
+		data->user_cb(data->user_data);
 	}
 }
 

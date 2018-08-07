@@ -21,6 +21,25 @@ static __kernel struct k_sem no_wait_sem;
 static __kernel struct k_fifo no_wait_fifo;
 static __kernel struct k_poll_signal no_wait_signal;
 
+/**
+ * @brief Test cases to verify poll
+ *
+ * @defgroup kernel_poll_tests Poll tests
+ *
+ * @ingroup all_tests
+ *
+ * @{
+ * @}
+ */
+
+/**
+ * @brief Test poll events with no wait
+ *
+ * @ingroup kernel_poll_tests
+ *
+ * @see K_POLL_EVENT_INITIALIZER(), k_poll_signal_init(),
+ * k_poll_signal(), k_poll_signal_check()
+ */
 void test_poll_no_wait(void)
 {
 	struct fifo_msg msg = { NULL, FIFO_MSG_VALUE }, *msg_ptr;
@@ -41,6 +60,9 @@ void test_poll_no_wait(void)
 		K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_SIGNAL,
 					 K_POLL_MODE_NOTIFY_ONLY,
 					 &no_wait_signal),
+		K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_IGNORE,
+					 K_POLL_MODE_NOTIFY_ONLY,
+					 NULL),
 	};
 
 	/* test polling events that are already ready */
@@ -63,16 +85,20 @@ void test_poll_no_wait(void)
 	zassert_not_equal(signaled, 0, "");
 	zassert_equal(result, SIGNAL_RESULT, "");
 
+	zassert_equal(events[3].state, K_POLL_STATE_NOT_READY, "");
+
 	/* verify events are not ready anymore (user has to clear them first) */
 	events[0].state = K_POLL_STATE_NOT_READY;
 	events[1].state = K_POLL_STATE_NOT_READY;
 	events[2].state = K_POLL_STATE_NOT_READY;
+	events[3].state = K_POLL_STATE_NOT_READY;
 	k_poll_signal_reset(&no_wait_signal);
 
 	zassert_equal(k_poll(events, ARRAY_SIZE(events), 0), -EAGAIN, "");
 	zassert_equal(events[0].state, K_POLL_STATE_NOT_READY, "");
 	zassert_equal(events[1].state, K_POLL_STATE_NOT_READY, "");
 	zassert_equal(events[2].state, K_POLL_STATE_NOT_READY, "");
+	zassert_equal(events[3].state, K_POLL_STATE_NOT_READY, "");
 
 	zassert_not_equal(k_sem_take(&no_wait_sem, 0), 0, "");
 	zassert_is_null(k_fifo_get(&no_wait_fifo, 0), "");
@@ -83,7 +109,7 @@ void test_poll_no_wait(void)
 static K_SEM_DEFINE(wait_sem, 0, 1);
 static K_FIFO_DEFINE(wait_fifo);
 static __kernel struct k_poll_signal wait_signal =
-		K_POLL_SIGNAL_INITIALIZER(wait_signal);
+	K_POLL_SIGNAL_INITIALIZER(wait_signal);
 
 struct fifo_msg wait_msg = { NULL, FIFO_MSG_VALUE };
 
@@ -104,6 +130,9 @@ struct k_poll_event wait_events[] = {
 	K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_SIGNAL,
 					K_POLL_MODE_NOTIFY_ONLY,
 					&wait_signal, TAG_2),
+	K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_IGNORE,
+					K_POLL_MODE_NOTIFY_ONLY,
+					NULL),
 };
 
 static void poll_wait_helper(void *use_fifo, void *p2, void *p3)
@@ -121,6 +150,13 @@ static void poll_wait_helper(void *use_fifo, void *p2, void *p3)
 	k_poll_signal(&wait_signal, SIGNAL_RESULT);
 }
 
+/**
+ * @brief Test polling with wait
+ *
+ * @ingroup kernel_poll_tests
+ *
+ * @see k_poll_signal_init(), k_poll()
+ */
 void test_poll_wait(void)
 {
 	const int main_low_prio = 10;
@@ -165,10 +201,13 @@ void test_poll_wait(void)
 	zassert_equal(wait_signal.result, SIGNAL_RESULT, "");
 	zassert_equal(wait_events[2].tag, TAG_2, "");
 
+	zassert_equal(wait_events[3].state, K_POLL_STATE_NOT_READY, "");
+
 	/* verify events are not ready anymore */
 	wait_events[0].state = K_POLL_STATE_NOT_READY;
 	wait_events[1].state = K_POLL_STATE_NOT_READY;
 	wait_events[2].state = K_POLL_STATE_NOT_READY;
+	wait_events[3].state = K_POLL_STATE_NOT_READY;
 	wait_signal.signaled = 0;
 
 	zassert_equal(k_poll(wait_events, ARRAY_SIZE(wait_events),
@@ -177,6 +216,7 @@ void test_poll_wait(void)
 	zassert_equal(wait_events[0].state, K_POLL_STATE_NOT_READY, "");
 	zassert_equal(wait_events[1].state, K_POLL_STATE_NOT_READY, "");
 	zassert_equal(wait_events[2].state, K_POLL_STATE_NOT_READY, "");
+	zassert_equal(wait_events[3].state, K_POLL_STATE_NOT_READY, "");
 
 	/* tags should not have been touched */
 	zassert_equal(wait_events[0].tag, TAG_0, "");
@@ -315,6 +355,13 @@ static void multi(void *p1, void *p2, void *p3)
 
 static K_SEM_DEFINE(multi_ready_sem, 1, 1);
 
+/**
+ * @brief Test polling of multiple events
+ *
+ * @ingroup kernel_poll_tests
+ *
+ * @see K_POLL_EVENT_INITIALIZER(), k_poll()
+ */
 void test_poll_multi(void)
 {
 	int old_prio = k_thread_priority_get(k_current_get());
