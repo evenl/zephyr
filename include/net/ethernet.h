@@ -84,6 +84,9 @@ enum ethernet_hw_caps {
 
 	/** Priority queues available */
 	ETHERNET_PRIORITY_QUEUES	= BIT(11),
+
+	/** MAC address filtering supported */
+	ETHERNET_HW_FILTERING		= BIT(12),
 };
 
 enum ethernet_config_type {
@@ -91,18 +94,51 @@ enum ethernet_config_type {
 	ETHERNET_CONFIG_TYPE_LINK,
 	ETHERNET_CONFIG_TYPE_DUPLEX,
 	ETHERNET_CONFIG_TYPE_MAC_ADDRESS,
-	ETHERNET_CONFIG_TYPE_QAV_DELTA_BANDWIDTH,
-	ETHERNET_CONFIG_TYPE_QAV_IDLE_SLOPE,
+	ETHERNET_CONFIG_TYPE_QAV_PARAM,
 	ETHERNET_CONFIG_TYPE_PROMISC_MODE,
 	ETHERNET_CONFIG_TYPE_PRIORITY_QUEUES_NUM,
+	ETHERNET_CONFIG_TYPE_FILTER,
 };
 
-struct ethernet_qav_queue_param {
+enum ethernet_qav_param_type {
+	ETHERNET_QAV_PARAM_TYPE_DELTA_BANDWIDTH,
+	ETHERNET_QAV_PARAM_TYPE_IDLE_SLOPE,
+	ETHERNET_QAV_PARAM_TYPE_OPER_IDLE_SLOPE,
+	ETHERNET_QAV_PARAM_TYPE_TRAFFIC_CLASS,
+	ETHERNET_QAV_PARAM_TYPE_STATUS,
+};
+
+struct ethernet_qav_param {
+	/** ID of the priority queue to use */
 	int queue_id;
+	/** Type of Qav parameter */
+	enum ethernet_qav_param_type type;
 	union {
+		/** True if Qav is enabled for queue */
+		bool enabled;
+		/** Delta Bandwidth (percentage of bandwidth) */
 		unsigned int delta_bandwidth;
+		/** Idle Slope (bits per second) */
 		unsigned int idle_slope;
+		/** Oper Idle Slope (bits per second) */
+		unsigned int oper_idle_slope;
+		/** Traffic class the queue is bound to */
+		unsigned int traffic_class;
 	};
+};
+
+enum ethernet_filter_type {
+	ETHERNET_FILTER_TYPE_SRC_MAC_ADDRESS,
+	ETHERNET_FILTER_TYPE_DST_MAC_ADDRESS,
+};
+
+struct ethernet_filter {
+	/** Type of filter */
+	enum ethernet_filter_type type;
+	/** MAC address to filter */
+	struct net_eth_addr mac_address;
+	/** Set (true) or unset (false) the filter */
+	bool set;
 };
 
 struct ethernet_config {
@@ -120,9 +156,11 @@ struct ethernet_config {
 
 		struct net_eth_addr mac_address;
 
-		struct ethernet_qav_queue_param qav_queue_param;
+		struct ethernet_qav_param qav_param;
 
 		int priority_queues_num;
+
+		struct ethernet_filter filter;
 	};
 /* @endcond */
 };

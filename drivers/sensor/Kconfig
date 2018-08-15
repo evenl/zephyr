@@ -101,11 +101,15 @@ source "drivers/sensor/max44009/Kconfig"
 
 source "drivers/sensor/mcp9808/Kconfig"
 
+source "drivers/sensor/mma8451q/Kconfig"
+
 source "drivers/sensor/mpu6050/Kconfig"
 
 source "drivers/sensor/nrf5/Kconfig"
 
 source "drivers/sensor/pms7003/Kconfig"
+
+source "drivers/sensor/qdec_nrfx/Kconfig"
 
 source "drivers/sensor/sht3xd/Kconfig"
 
