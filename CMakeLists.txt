@@ -622,15 +622,14 @@ if(CONFIG_APPLICATION_MEMORY)
     list(APPEND ks ${fixed_path})
   endforeach()
 
-  # We are done constructing kernel_object_file_list, now we inject this
-  # information into the linker script through -D's
-  list(LENGTH kernel_object_file_list NUM_KERNEL_OBJECT_FILES)
-  list(APPEND LINKER_SCRIPT_DEFINES -DNUM_KERNEL_OBJECT_FILES=${NUM_KERNEL_OBJECT_FILES})
-  set(i 0)
+  # We are done constructing kernel_object_file_list, now we inject
+  # this list into the linker script through the define
+  # KERNELSPACE_OBJECT_FILES
+  set(def -DKERNELSPACE_OBJECT_FILES=)
   foreach(f ${ks})
-    list(APPEND LINKER_SCRIPT_DEFINES -DKERNEL_OBJECT_FILE_${i}=${f})
-    math(EXPR i "${i}+1")
+    set(def "${def} ${f}")
   endforeach()
+  list(APPEND LINKER_SCRIPT_DEFINES ${def})
 endif() # CONFIG_APPLICATION_MEMORY
 
 # Declare MPU userspace dependencies before the linker scripts to make
@@ -704,6 +703,7 @@ add_custom_target(
   linker_script
   DEPENDS
   ${ALIGN_SIZING_DEP} ${PRIV_STACK_DEP}
+  ${APP_SMEM_DEP}
   linker.cmd
   offsets_h
   )
@@ -725,13 +725,11 @@ set(zephyr_lnk
   ${LINKERFLAGPREFIX},-Map=${PROJECT_BINARY_DIR}/${KERNEL_MAP_NAME}
   -u_OffsetAbsSyms
   -u_ConfigAbsSyms
-  ${LINKERFLAGPREFIX},--start-group
   ${LINKERFLAGPREFIX},--whole-archive
   ${ZEPHYR_LIBS_PROPERTY}
   ${LINKERFLAGPREFIX},--no-whole-archive
   kernel
   ${OFFSETS_O_PATH}
-  ${LINKERFLAGPREFIX},--end-group
   ${LIB_INCLUDE_DIR}
   -L${PROJECT_BINARY_DIR}
   ${TOOLCHAIN_LIBS}
@@ -1022,20 +1020,22 @@ configure_file(
 if(CONFIG_CPU_HAS_MPU AND CONFIG_USERSPACE)
 
     if(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT AND CONFIG_APP_SHARED_MEM)
-        set(GEN_APP_SMEM $ENV{ZEPHYR_BASE}/scripts/gen_app_smem.py)
         set(APP_SMEM_LD "${PROJECT_BINARY_DIR}/include/generated/app_smem.ld")
         set(OBJ_FILE_DIR "${PROJECT_BINARY_DIR}/../")
 
         add_custom_target(
           ${APP_SMEM_DEP} ALL
-          DEPENDS zephyr_prebuilt
+          DEPENDS app
+          DEPENDS ${PRIV_STACK_DEP}
          )
 
         add_custom_command(
           TARGET ${APP_SMEM_DEP}
-          COMMAND ${PYTHON_EXECUTABLE} ${GEN_APP_SMEM}
+          COMMAND ${PYTHON_EXECUTABLE}
+          ${ZEPHYR_BASE}/scripts/gen_app_partitions.py
           -d ${OBJ_FILE_DIR}
           -o ${APP_SMEM_LD}
+          $<$<BOOL:${CMAKE_VERBOSE_MAKEFILE}>:--verbose>
           WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/
           COMMENT "Generating power of 2 aligned app_smem linker section"
          )
@@ -1151,7 +1151,7 @@ if(GKOF OR GKSF)
   add_executable(       kernel_elf misc/empty_file.c ${GKSF})
   target_link_libraries(kernel_elf ${GKOF} ${TOPT} ${PROJECT_BINARY_DIR}/linker_pass_final.cmd ${zephyr_lnk})
   set_property(TARGET   kernel_elf PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker_pass_final.cmd)
-  add_dependencies(     kernel_elf ${ALIGN_SIZING_DEP} ${PRIV_STACK_DEP} ${APP_SMEM_DEP} linker_pass_final_script)
+  add_dependencies(     kernel_elf ${ALIGN_SIZING_DEP} ${PRIV_STACK_DEP} linker_pass_final_script)
 else()
   set(logical_target_for_zephyr_elf zephyr_prebuilt)
   # Use the prebuilt elf as the final elf since we don't have a
