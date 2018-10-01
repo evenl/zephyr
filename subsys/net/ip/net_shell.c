@@ -13,7 +13,7 @@
 #include <zephyr.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <shell/shell.h>
+#include <shell/legacy_shell.h>
 
 #include <net/net_if.h>
 #include <net/dns_resolve.h>
@@ -2244,7 +2244,7 @@ static char *http_str_output(char *output, int outlen, const char *str, int len)
 	}
 
 	if (len == 0) {
-		memset(output, 0, outlen);
+		(void)memset(output, 0, outlen);
 	} else {
 		memcpy(output, str, len);
 		output[len] = '\0';
@@ -2661,7 +2661,7 @@ int net_shell_cmd_mem(int argc, char *argv[])
 	if (IS_ENABLED(CONFIG_NET_CONTEXT_NET_PKT_POOL)) {
 		struct ctx_info info;
 
-		memset(&info, 0, sizeof(info));
+		(void)memset(&info, 0, sizeof(info));
 		net_context_foreach(context_info, &info);
 
 		if (!info.are_external_pools) {

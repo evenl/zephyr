@@ -10,8 +10,8 @@
  * @brief Public kernel APIs.
  */
 
-#ifndef _kernel__h_
-#define _kernel__h_
+#ifndef ZEPHYR_INCLUDE_KERNEL_H_
+#define ZEPHYR_INCLUDE_KERNEL_H_
 
 #if !defined(_ASMLANGUAGE)
 #include <kernel_includes.h>
@@ -539,6 +539,11 @@ struct k_thread {
 	struct k_thread *next_thread;
 #endif
 
+#if defined(CONFIG_THREAD_NAME)
+	/* Thread name */
+	const char *name;
+#endif
+
 #ifdef CONFIG_THREAD_CUSTOM_DATA
 	/** crude thread-local storage */
 	void *custom_data;
@@ -602,26 +607,6 @@ enum execution_context_types {
  */
 typedef void (*k_thread_user_cb_t)(const struct k_thread *thread,
 				   void *user_data);
-
-/**
- * @brief Analyze the main, idle, interrupt and system workqueue call stacks
- *
- * This routine calls @ref STACK_ANALYZE on the 4 call stacks declared and
- * maintained by the kernel. The sizes of those 4 call stacks are defined by:
- *
- * CONFIG_MAIN_STACK_SIZE
- * CONFIG_IDLE_STACK_SIZE
- * CONFIG_ISR_STACK_SIZE
- * CONFIG_SYSTEM_WORKQUEUE_STACK_SIZE
- *
- * @note CONFIG_INIT_STACKS and CONFIG_PRINTK must be set for this function to
- * produce output.
- *
- * @return N/A
- *
- * @deprecated This API is deprecated.  Use k_thread_foreach().
- */
-__deprecated extern void k_call_stacks_analyze(void);
 
 /**
  * @brief Iterate over all the threads in the system.
@@ -934,11 +919,12 @@ struct _static_thread_data {
 	u32_t init_options;
 	s32_t init_delay;
 	void (*init_abort)(void);
+	const char *init_name;
 };
 
 #define _THREAD_INITIALIZER(thread, stack, stack_size,           \
 			    entry, p1, p2, p3,                   \
-			    prio, options, delay, abort, groups) \
+			    prio, options, delay, abort, tname)  \
 	{                                                        \
 	.init_thread = (thread),				 \
 	.init_stack = (stack),					 \
@@ -951,6 +937,7 @@ struct _static_thread_data {
 	.init_options = (options),                               \
 	.init_delay = (delay),                                   \
 	.init_abort = (abort),                                   \
+	.init_name = STRINGIFY(tname),                           \
 	}
 
 /**
@@ -997,7 +984,7 @@ struct _static_thread_data {
 		_THREAD_INITIALIZER(&_k_thread_obj_##name,		 \
 				    _k_thread_stack_##name, stack_size,  \
 				entry, p1, p2, p3, prio, options, delay, \
-				NULL, 0);				 \
+				NULL, name);				 	 \
 	const k_tid_t name = (k_tid_t)&_k_thread_obj_##name
 
 /**
@@ -1244,9 +1231,27 @@ __syscall void k_thread_custom_data_set(void *value);
 __syscall void *k_thread_custom_data_get(void);
 
 /**
+ * @brief Set current thread name
+ *
+ * Set the name of the thread to be used when THREAD_MONITOR is enabled for
+ * tracing and debugging.
+ *
+ */
+__syscall void k_thread_name_set(k_tid_t thread_id, const char *value);
+
+/**
+ * @brief Get thread name
+ *
+ * Get the name of a thread
+ *
+ * @param thread_id Thread ID
+ *
+ */
+__syscall const char *k_thread_name_get(k_tid_t thread_id);
+
+/**
  * @}
  */
-
 #include <sys_clock.h>
 
 /**
@@ -4983,4 +4988,4 @@ inline void *operator new[](size_t size, void *ptr)
 
 #endif /* !_ASMLANGUAGE */
 
-#endif /* _kernel__h_ */
+#endif /* ZEPHYR_INCLUDE_KERNEL_H_ */

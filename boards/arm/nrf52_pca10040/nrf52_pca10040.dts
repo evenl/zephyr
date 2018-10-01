@@ -6,7 +6,7 @@
  */
 
 /dts-v1/;
-#include <nordic/nrf52832.dtsi>
+#include <nordic/nrf52832_qfaa.dtsi>
 
 / {
 	model = "Nordic PCA10040 Dev Kit";
@@ -44,8 +44,6 @@
 
 	buttons {
 		compatible = "gpio-keys";
-		#address-cells = <1>;
-		#size-cells = <0>;
 		button0: button@0 {
 			gpios = <&gpio0 13 GPIO_PUD_PULL_UP>;
 			label = "Push button switch 0";
@@ -135,7 +133,7 @@
 &flash0 {
 	/*
 	 * For more information, see:
-	 * http://docs.zephyrproject.org/devices/dts/flash_partitions.html
+	 * http://docs.zephyrproject.org/latest/devices/dts/flash_partitions.html
 	 */
 	partitions {
 		compatible = "fixed-partitions";

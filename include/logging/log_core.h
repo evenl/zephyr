@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef LOG_FRONTEND_H
-#define LOG_FRONTEND_H
+#ifndef ZEPHYR_INCLUDE_LOGGING_LOG_CORE_H_
+#define ZEPHYR_INCLUDE_LOGGING_LOG_CORE_H_
 
 #include <logging/log_msg.h>
 #include <logging/log_instance.h>
@@ -335,7 +335,7 @@ static inline u8_t log_compiled_level_get(u32_t source_id)
 static inline u32_t log_const_source_id(
 				const struct log_source_const_data *data)
 {
-	return ((void *)data - (void *)__log_const_start)/
+	return ((char *)data - (char *)__log_const_start)/
 			sizeof(struct log_source_const_data);
 }
 
@@ -377,7 +377,7 @@ static inline u32_t *log_dynamic_filters_get(u32_t source_id)
  */
 static inline u32_t log_dynamic_source_id(struct log_source_dynamic_data *data)
 {
-	return ((void *)data - (void *)__log_dynamic_start)/
+	return ((char *)data - (char *)__log_dynamic_start)/
 			sizeof(struct log_source_dynamic_data);
 }
 
@@ -475,4 +475,4 @@ void log_generic(struct log_msg_ids src_level, const char *fmt, va_list ap);
 }
 #endif
 
-#endif /* LOG_FRONTEND_H */
+#endif /* ZEPHYR_INCLUDE_LOGGING_LOG_CORE_H_ */
