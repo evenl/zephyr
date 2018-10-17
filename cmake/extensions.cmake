@@ -375,19 +375,23 @@ function(target_sources_codegen
     )
   set(options)
   set(oneValueArgs)
-  set(multiValueArgs CODEGEN_DEFINES DEPENDS)
+  set(multiValueArgs CODEGEN_DEFINES SEARCH_PATH)
+  
   cmake_parse_arguments(CODEGEN "${options}" "${oneValueArgs}"
                         "${multiValueArgs}" ${ARGN})
   # prepend -D to all defines
   string(REGEX REPLACE "([^;]+)" "-D;\\1"
          CODEGEN_CODEGEN_DEFINES "${CODEGEN_CODEGEN_DEFINES}")
+
+  string(REGEX REPLACE "([^;]+)" "-I;\\1"
+         CODEGEN_SEARCH_PATH "${CODEGEN_SEARCH_PATH}")
+
+  message(${CODEGEN_SEARCH_PATH})
+
   # Get all the files that make up codegen for dependency
   file(GLOB CODEGEN_SOURCES
-    ${ZEPHYR_BASE}/scripts/dts/edtsdatabase.py
-    ${ZEPHYR_BASE}/scripts/codegen/modules/*.py
-    ${ZEPHYR_BASE}/scripts/codegen/templates/drivers/*.py
     ${ZEPHYR_BASE}/scripts/codegen/*.py
-    ${ZEPHYR_BASE}/scripts/gen_code.py)
+    ${ZEPHYR_BASE}/scripts/render_template.py)
 
   message(STATUS "Will generate for target ${target}")
   # Generated file must be generated to the current binary directory.
@@ -396,11 +400,12 @@ function(target_sources_codegen
   foreach(arg ${CODEGEN_UNPARSED_ARGUMENTS})
     if(IS_ABSOLUTE ${arg})
       set(template_file ${arg})
-      get_filename_component(generated_file_name ${arg} NAME)
-      set(generated_file ${CMAKE_CURRENT_BINARY_DIR}/${generated_file_name})
+      get_filename_component(generated_file_name ${arg} NAME_WE)
+      set(generated_file ${CMAKE_CURRENT_BINARY_DIR}/${generated_file_name}.c)
     else()
       set(template_file ${CMAKE_CURRENT_SOURCE_DIR}/${arg})
-      set(generated_file ${CMAKE_CURRENT_BINARY_DIR}/${arg})
+      get_filename_component(generated_file_name ${arg} NAME_WE)
+      set(generated_file ${CMAKE_CURRENT_BINARY_DIR}/${generated_file_name}.c)
     endif()
     get_filename_component(template_dir ${template_file} DIRECTORY)
 
@@ -416,12 +421,12 @@ function(target_sources_codegen
       OUTPUT ${generated_file}
       MAIN_DEPENDENCY ${template_file}
       DEPENDS
-      ${CODEGEN_DEPENDS}
       ${CODEGEN_SOURCES}
       COMMAND
       ${PYTHON_EXECUTABLE}
-      ${ZEPHYR_BASE}/scripts/gen_code.py
+      ${ZEPHYR_BASE}/scripts/render_template.py
       ${CODEGEN_CODEGEN_DEFINES}
+      ${CODEGEN_SEARCH_PATH}
       -D "PROJECT_NAME=${PROJECT_NAME}"
       -D "PROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
       -D "PROJECT_BINARY_DIR=${PROJECT_BINARY_DIR}"

@@ -1,6 +1,7 @@
 # Copyright 2004-2016, Ned Batchelder.
 #           http://nedbatchelder.com/code/cog
 # Copyright (c) 2018 Bobby Noelte.
+# Copyright (c) 2018 Nordic Semiconductor ASA
 #
 # SPDX-License-Identifier: MIT
 
@@ -25,18 +26,18 @@ class Options(object):
             # File exists so return the file
             return arg
 
-    def __init__(self):
+    def __init__(self, data):
         # Defaults for argument values.
         self.args = []
         self.includePath = []
         self.defines = {}
         self.bNoGenerate = False
         self.sOutputName = None
-        self.bWarnEmpty = False
-        self.bDeleteCode = False
-        self.bNewlines = False
         self.sEncoding = "utf-8"
         self.verbosity = 2
+        
+        self.data = data
+        self.data['runtime'] = dict()
 
         self._parser = argparse.ArgumentParser(
                             description='Generate code with inlined Python code.')
@@ -65,7 +66,7 @@ class Options(object):
             type=lambda x: self.is_valid_file(self._parser, x),
             help='Get the input from FILE.')
         self._parser.add_argument('-o', '--output', nargs=1, metavar='FILE',
-            dest='sOutputName', action='store',
+            dest='output_name', action='store',
             help='Write the output to FILE.')
         self._parser.add_argument('-l', '--log', nargs=1, metavar='FILE',
             dest='log_file', action='store',
@@ -94,27 +95,37 @@ class Options(object):
     def parse_args(self, argv):
         args = self._parser.parse_args(argv)
         # set options
-        self.bDeleteCode = args.bDeleteCode
-        self.bWarnEmpty = args.bWarnEmpty
-        self.bNewlines = args.bNewlines
+        self.data['runtime']['delete_code'] = args.bDeleteCode
+        self.data['runtime']['warn_empty'] = args.bWarnEmpty
+        self.data['runtime']['new_lines'] = args.bNewlines
+
         if args.includePath is None:
-            self.includePath = []
+            self.data['runtime']['include_path'] = []
         else:
-            self.includePath = args.includePath
-        self.sEncoding = args.sEncoding
+            include_paths = []
+            for inc in args.includePath:
+                include_paths.append(inc[0])
+
+            self.data['runtime']['include_path'] = include_paths
+
+        self.data['runtime']['encoding'] = args.sEncoding
+
         if args.input_file is None:
-            self.input_file = None
+            self.data['runtime']['input_file'] = None
         else:
-            self.input_file = args.input_file[0]
-        if args.sOutputName is None:
-            self.sOutputName = None
+            self.data['runtime']['input_file'] = args.input_file[0]
+
+        if args.output_name is None:
+            self.data['runtime']['output_name'] = None
         else:
-            self.sOutputName = args.sOutputName[0]
+            self.data['runtime']['output_name'] = args.output_name[0]
+
         if args.log_file is None:
-            self.log_file = None
+            self.data['runtime']['log_file'] = None
         else:
-            self.log_file = args.log_file[0]
-        self.defines = {}
+            self.data['runtime']['log_file'] = args.log_file[0]
+
+        self.data['runtime']['defines'] = dict()
         if args.defines is not None:
             for define in args.defines:
                 d = define[0].split('=')
@@ -122,14 +133,8 @@ class Options(object):
                     value = d[1]
                 else:
                     value = None
-                self.defines[d[0]] = value
 
-    def addToIncludePath(self, dirs):
-        """ Add directories to the include path.
-        """
-        dirs = dirs.split(os.pathsep)
-        self.includePath.extend(dirs)
-
+                self.data['runtime']['defines'].update({d[0]:value})
 
 
 class OptionsMixin(object):

@@ -1,5 +1,8 @@
+{% import 'spi_ll_stm32.meta.jinja2' as spi_stm32 %}
+
 /*
  * Copyright (c) 2016 BayLibre, SAS
+ * Copyright (c) 2018 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -476,39 +479,4 @@ static int spi_stm32_init(struct device *dev)
 	return 0;
 }
 
-
-/**
- * @code{.codegen}
- * codegen.import_module('devicedeclare')
- *
- * device_data = ( 'spi_stm32_data',
- * """
- * 	SPI_CONTEXT_INIT_LOCK(${device-name}_data, ctx),
- * 	SPI_CONTEXT_INIT_SYNC(${device-name}_data, ctx),
- * """
- * )
- *
- *
- * device_config = ( 'spi_stm32_config',
- * """
- *      .spi = (SPI_TypeDef *)${reg/0/address/0},
- *      .pclken.bus = ${clocks/0/bus},
- *      .pclken.enr = ${clocks/0/bits},
- * #ifdef CONFIG_SPI_STM32_INTERRUPT
- *      .irq_config = ${device-name}_config_irq,
- * #endif
- * """)
- *
- * devicedeclare.device_declare(['st,stm32-spi', 'st,stm32-spi-fifo'],
- * 'CONFIG_SPI_INIT_PRIORITY',
- * 'POST_KERNEL',
- * {'irq_func':'spi_stm32_isr','irq_flag': 'CONFIG_SPI_STM32_INTERRUPT'},
- * 'spi_stm32_init',
- * 'api_funcs',
- * device_data,
- * device_config
- * )
- *
- * @endcode{.codegen}
- */
-/** @code{.codeins}@endcode */
+{{ spi_stm32.device(data, ['st,stm32-spi', 'st,stm32-spi-fifo']) }}

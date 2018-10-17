@@ -1,3 +1,5 @@
+{% import 'i2c_ll_stm32.meta.jinja2' as i2c_stm32 %}
+
 /*
  * Copyright (c) 2016 BayLibre, SAS
  * Copyright (c) 2017 Linaro Ltd
@@ -53,36 +55,28 @@ int i2c_stm32_runtime_configure(struct device *dev, u32_t config)
 static int i2c_stm32_transfer(struct device *dev, struct i2c_msg *msg,
 			      u8_t num_msgs, u16_t slave)
 {
-#if defined(CONFIG_I2C_STM32_V1)
 	const struct i2c_stm32_config *cfg = DEV_CFG(dev);
-	I2C_TypeDef *i2c = cfg->i2c;
-#endif
 	struct i2c_msg *current, *next;
+	I2C_TypeDef *i2c = cfg->i2c;
 	int ret = 0;
 
-	/* Check for validity of all messages, to prevent having to abort
-	 * in the middle of a transfer
-	 */
-	current = msg;
+	LL_I2C_Enable(i2c);
 
+	current = msg;
 	/*
 	 * Set I2C_MSG_RESTART flag on first message in order to send start
 	 * condition
 	 */
 	current->flags |= I2C_MSG_RESTART;
+	while (num_msgs > 0) {
+		u8_t *next_msg_flags = NULL;
 
-	for (u8_t i = 1; i <= num_msgs; i++) {
-		/* Maximum length of a single message is 255 Bytes */
-		if (current->len > 255) {
-			ret = -EINVAL;
-			break;
-		}
-
-		if (i < num_msgs) {
+		if (num_msgs > 1) {
 			next = current + 1;
+			next_msg_flags = &(next->flags);
 
 			/*
-			 * Restart condition between messages
+			 * Stop or restart condition between messages
 			 * of different directions is required
 			 */
 			if (OPERATION(current) != OPERATION(next)) {
@@ -91,37 +85,17 @@ static int i2c_stm32_transfer(struct device *dev, struct i2c_msg *msg,
 					break;
 				}
 			}
-
-			/* Stop condition is only allowed on last message */
-			if (current->flags & I2C_MSG_STOP) {
-				ret = -EINVAL;
-				break;
-			}
-		} else {
-			/* Stop condition is required for the last message */
-			current->flags |= I2C_MSG_STOP;
 		}
 
-		current++;
-	}
+		if (current->len > 255) {
+			ret = -EINVAL;
+			break;
+		}
 
-	if (ret) {
-		return ret;
-	}
-
-	/* Send out messages */
-#if defined(CONFIG_I2C_STM32_V1)
-	LL_I2C_Enable(i2c);
-#endif
-
-	current = msg;
-
-	while (num_msgs > 0) {
-		u8_t *next_msg_flags = NULL;
-
-		if (num_msgs > 1) {
-			next = current + 1;
-			next_msg_flags = &(next->flags);
+		/* Stop condition is required for the last message */
+		if ((num_msgs == 1) && !(current->flags & I2C_MSG_STOP)) {
+			ret = -EINVAL;
+			break;
 		}
 
 		if ((current->flags & I2C_MSG_RW_MASK) == I2C_MSG_WRITE) {
@@ -139,19 +113,15 @@ static int i2c_stm32_transfer(struct device *dev, struct i2c_msg *msg,
 		current++;
 		num_msgs--;
 	};
-#if defined(CONFIG_I2C_STM32_V1)
+
 	LL_I2C_Disable(i2c);
-#endif
+
 	return ret;
 }
 
 static const struct i2c_driver_api api_funcs = {
 	.configure = i2c_stm32_runtime_configure,
 	.transfer = i2c_stm32_transfer,
-#if defined(CONFIG_I2C_SLAVE) && defined(CONFIG_I2C_STM32_V2)
-	.slave_register = i2c_stm32_slave_register,
-	.slave_unregister = i2c_stm32_slave_unregister,
-#endif
 };
 
 static int i2c_stm32_init(struct device *dev)
@@ -209,36 +179,4 @@ static int i2c_stm32_init(struct device *dev)
 	return 0;
 }
 
-
-/**
- * @code{.codegen}
- *codegen.import_module('devicedeclare')
- *
- *device_data = ('i2c_stm32_data')
- *
- *device_config = ('i2c_stm32_config',
- * """
- *	.i2c = (I2C_TypeDef *)${reg/0/address/0},
- *	.pclken = {
- *		.enr = ${clocks/0/bits},
- *		.bus = ${clocks/0/bus},
- *	},
- * #ifdef CONFIG_I2C_STM32_INTERRUPT
- *	.irq_config_func = ${device-name}_config_irq,
- * #endif
- *	.bitrate = ${clock-frequency},
- * """)
- *
- *devicedeclare.device_declare(['st,stm32-i2c-v1','st,stm32-i2c-v2'],
- * 'CONFIG_KERNEL_INIT_PRIORITY_DEVICE',
- * 'POST_KERNEL',
- * {'irq_func':'stm32_i2c_isr','irq_flag': 'CONFIG_I2C_STM32_INTERRUPT'},
- * 'i2c_stm32_init',
- * 'api_funcs',
- * device_data,
- * device_config
- *)
- *
- * @endcode{.codegen}
- */
-/** @code{.codeins}@endcode */
+{{ i2c_stm32.device(data, ['st,stm32-i2c-v1', 'st,stm32-i2c-v2']) }}
