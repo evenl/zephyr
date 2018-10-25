@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from jinja2 import Environment, FileSystemLoader, BaseLoader, DictLoader
+from mako.template import Template
 import ntpath
 import os
 import json
@@ -71,9 +71,8 @@ class CodeGen():
         include_paths.append(input_path)
         include_paths.extend(self.data['runtime']['include_path'])
  
-        loader = FileSystemLoader(include_paths)
-        env = Environment(loader=loader, extensions=['jinja2.ext.do','jinja2.ext.loopcontrols'])
-        self.template_handle = env.get_template(input_filename)
+        lookup = TemplateLookup(directories=include_paths)
+        self.template_handle = Template(filename=input_filename, lookup=lookup)
 
         self.write_generated_output(self.render())
 

@@ -1,87 +1,59 @@
-{# Copyright (c) 2018 Nordic Semiconductor ASA #}
-{# SPDX-License-Identifier: Apache-2.0         #}
+## Copyright (c) 2018 Nordic Semiconductor ASA 
+## SPDX-License-Identifier: Apache-2.0         
 
-{%- macro get_param(param_list, param) -%}
-	{%- for key, value in param_list.items() -%}
-		{%- if key == param -%}
-			{{ value }}
-			{%- break -%}
-		{%- endif -%}
-	{%- endfor -%}
-{%- endmacro -%}
+<% def name="gen_device_name(device)"> 
+	<% name = device['compatible']['0']|replace(',','_')|replace('-','_') %>
+	<% name = name + "_%x"|format(device['reg']['0']['address']['0']) %>
+	${name}
+<%/def>
 
-{%- macro gen_device_name(device) -%}
-	{%- set name = device['compatible']['0']|replace(',','_')|replace('-','_') -%}
-	{%- set name = name + "_%x"|format(device['reg']['0']['address']['0']) -%}
-	{{ name }}
-{%- endmacro -%}
-
-{%- macro gen_irq_connect(device, irq_name, isr_name) -%}
-{%- for irq in device['interrupts'] -%}
-	{%- if irq_name == irq -%}
-	IRQ_CONNECT({{ device['interrupts'][irq]['irq'] }}, \
-		    {{ device['interrupts'][irq]['priority'] }}, \
-		    {{ isr_name }}, \
-		    DEVICE_GET({{ device_name }}, \
+<% def name="gen_irq_connect(device, irq_name, isr_name)" >
+% for irq in device['interrupts']:
+	% if irq_name == irq:
+	IRQ_CONNECT(${ device['interrupts'][irq]['irq'] }, \
+		    ${ device['interrupts'][irq]['priority'] }, \
+		    ${ isr_name }, \
+		    DEVICE_GET(${ device_name }, \
 		    0);
-	irq_enable({{ device['interrupts'][irq]['irq'] }});
-	{% endif -%}
-{%- endfor -%}
-{%- endmacro -%}
+	irq_enable(${ device['interrupts'][irq]['irq'] });
+	% endif
+% endfor
+<%/def>
 
+<% def name="device(data, compatibles, irq_config_function_body=None, config_struct_body=None, init_priority_flag='CONFIG_KERNEL_INIT_PRIORITY_DEVICE', kernel_level='POST_KERNEL')">
 
+  % for compa in compatibles:
+    % for device_ref in data['devicetree']['compatibles'][compa]:
+      <% 
+        device = data['devicetree']['devices'][device_ref] 
 
-{# Input paramters 
-	data               The data variable in the main template is not automatically carried over to this macro
-	compatibles        Tell the macro which compatibels in the dts data to look for
-	init_priority_flag Defaults to the value "CONFIG_KERNEL_INIT_PRIORITY_DEVICE" if omitted
-	kernel_levels      Defaults to the value "POST_KERNEL" if omitted
-	#}
-{%- macro device(data, compatibles, init_priority_flag='CONFIG_KERNEL_INIT_PRIORITY_DEVICE', kernel_level='POST_KERNEL') -%}
+        device_name              = gen_device_name(device)
+        config_struct_name       = device_name + "_config"
+        data_struct_name         = device_name + "_data"
+        irq_config_function_name = device_name + "_config_irq"
+        device_label             = device['label']
+     %>
 
-{# Empty params dictionary that can be filled by the init_params block #}
-{%- set params = {} -%}
+#ifdef CONFIG_${ device_label }
+#ifdef ${ irq_flag }
 
-{# Meta block just to fetch the parameters initialized in the meta template file #}
-{%- block init_params scoped -%}
-{%- endblock -%}
-
-{# Will itterate through the compatibles list and look for device in dts data that
-   has the same compatibles string #}
-{%- for compa in compatibles -%}
-
-{# Will copy the device reference in the compatibles lookup table in to a variable #}
-{%- for device_ref in data['devicetree']['compatibles'][compa] -%}
-
-{# Create a variable pointing to the devicetree metadata for the current intance #}
-{%- set device = data['devicetree']['devices'][device_ref] %}
-
-{# Create some helper variable for information used multiple times,
-   can also  be used by overloaded blocks #}
-{%- set device_name              = gen_device_name(device) -%}
-{%- set config_struct_name       = device_name + "_config" -%}
-{%- set data_struct_name         = device_name + "_data" -%}
-{%- set irq_config_function_name = device_name + "_config_irq" -%} 
-{%- set device_label             = device['label'] -%}
-
-#ifdef CONFIG_{{ device_label }}
-#ifdef {{ get_param(params, 'irq_flag') }}
-
-DEVICE_DECLARE({{ device_name }});
-static void {{ irq_config_function_name }}(struct device *dev)
+DEVICE_DECLARE(${ device_name });
+static void ${ irq_config_function_name }(struct device *dev)
 {
-{%- block irq_config_function_body scoped -%}
-{%- endblock -%}
+% if irq_config_function_body != None:
+  {$ irq_config_function_body(device_name, config_struct_name, data_struct_name, irq_config_function_name, device_label) }
+% endif
 }
 
 #endif
 
-{% if get_param(params, 'config_struct') != "" -%}
-static const struct {{ get_param(params, 'config_struct') }} {{ config_struct_name }} = {
-{%- block config_struct_body scoped -%}
-{%- endblock -%}
+% if get_param(params, 'config_struct') != "":
+static const struct {{ get_param(params, 'config_struct') }} ${ config_struct_name } = {
+% if config_struct_body != None:
+${ config_struct_body(device_name, config_struct_name, data_struct_name, irq_config_function_name, device_label) }
+% endif
 };
-{%- endif %}
+% endif
 
 {% if get_param(params, 'data_struct') != "" -%}
 static struct {{ get_param(params, 'data_struct') }} {{ data_struct_name }} = {
@@ -102,6 +74,6 @@ DEVICE_AND_API_INIT({{ device_name }}, \
 #endif // CONFIG_{{ device_label }}
 {%- endfor -%}
 
-{%- endfor -%}
+% endfor
 
-{% endmacro %}
+<%/def>
